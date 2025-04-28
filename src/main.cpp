@@ -3,19 +3,19 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 #include "REX.h"
 
 using namespace REX;
 
-// PPQ resolution (pulses per quarter‐note)
-static constexpr double kPPQ = 15360.0;
-
-// Clamp helper (C++11)
+// Simple clamp for floats (C++11)
 static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Write a mono/stereo 16-bit PCM WAV
+// Write a mono or stereo 16-bit PCM WAV
 bool writeWav(const std::string& path,
               const std::vector<int16_t>& pcm,
               int sampleRate,
@@ -36,7 +36,7 @@ bool writeWav(const std::string& path,
 
     out.write("fmt ", 4);
     uint32_t fmtSize = 16;
-    uint16_t audioFmt = 1;
+    uint16_t audioFmt = 1;  // PCM
     out.write(reinterpret_cast<const char*>(&fmtSize),    4);
     out.write(reinterpret_cast<const char*>(&audioFmt),   2);
     out.write(reinterpret_cast<const char*>(&channels),   2);
@@ -52,26 +52,42 @@ bool writeWav(const std::string& path,
     return out.good();
 }
 
+static std::string stripExtension(const std::string& name) {
+    auto pos = name.find_last_of('.');
+    return pos == std::string::npos ? name
+                                    : name.substr(0, pos);
+}
+
 int main(int argc, char* argv[])
 {
-    if (argc != 3) {
+    if (argc != 2) {
         std::cerr << "Usage: " << argv[0]
-                  << " <input.rx2> <output_prefix>\n";
+                  << " <input.rx2>\n";
         return 1;
     }
 
     std::string inPath = argv[1];
-    std::string prefix = argv[2];
+    // Derive basename
+    auto slash = inPath.find_last_of("/\\");
+    std::string filename = (slash == std::string::npos ? inPath : inPath.substr(slash + 1));
+    std::string prefix = stripExtension(filename);
 
-    // 1) Init REX
+    // Create slices/ directory
+    const char* dir = "slices";
+    if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
+        std::perror("mkdir slices");
+        return 1;
+    }
+
+    // Initialize REX framework
     REXError err = REXInitializeDLL();
     if (err != kREXError_NoError) {
         std::cerr << "Failed to init REX DLL: " << err << "\n";
         return 1;
     }
 
-    // 2) Read file into memory
-    std::ifstream file(inPath, std::ios::binary | std::ios::ate);
+    // Load file into memory
+    std::ifstream file(inPath, std::ios::binary|std::ios::ate);
     if (!file) {
         std::cerr << "Cannot open: " << inPath << "\n";
         REXUninitializeDLL();
@@ -82,7 +98,7 @@ int main(int argc, char* argv[])
     std::vector<char> buffer(size);
     file.read(buffer.data(), size);
 
-    // 3) Create REX object
+    // Create REX object
     REXHandle rex = nullptr;
     err = REXCreate(&rex,
                     buffer.data(),
@@ -95,7 +111,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // 4) Query global info
+    // Get global info
     REXInfo info;
     err = REXGetInfo(rex, sizeof(info), &info);
     if (err != kREXError_NoError) {
@@ -108,53 +124,48 @@ int main(int argc, char* argv[])
     int sampleRate = info.fSampleRate;
     int channels   = info.fChannels;
     int sliceCount = info.fSliceCount;
-    double tempoBPM = info.fTempo / 1000.0;
+    double tempo   = info.fTempo / 1000.0; // BPM
+    const double kPPQ = 15360.0;
+    double secPerPulse = 60.0 / (kPPQ * tempo);
+    double loopSec = info.fPPQLength * secPerPulse;
 
     std::cout << "Loaded " << sliceCount
               << " slices @ " << sampleRate
               << " Hz, " << channels << " channel(s)\n";
 
-    // 5) Open report file
-    std::ofstream report(prefix + "_info.txt");
+    // Open CSV report
+    std::string reportPath = std::string(dir) + "/" + prefix + "_info.csv";
+    std::ofstream report(reportPath);
     if (!report) {
-        std::cerr << "❌ Cannot write report file\n";
+        std::cerr << "Cannot write report: " << reportPath << "\n";
     } else {
-        // total loop length (seconds) = PPQlength * seconds-per-pulse
-        double secPerPulse = 60.0 / (kPPQ * tempoBPM);
-        double loopSeconds = info.fPPQLength * secPerPulse;
-
-        report << "Total loop length: "
-               << loopSeconds << " seconds\n\n";
-
-        report << "Slice\tPPQ offset\tTime offset (s)\tDuration (s)\n";
+        report << "Slice,Duration,Total\n";
     }
 
-    // 6) Extract each slice
+    double cumulative = 0.0;
+    // Extract each slice
     for (int i = 0; i < sliceCount; ++i) {
-        // get slice info
+        // Get slice info
         REXSliceInfo sInfo;
         err = REXGetSliceInfo(rex, i, sizeof(sInfo), &sInfo);
         if (err != kREXError_NoError) {
-            std::cerr << "REXGetSliceInfo("<<i<<") failed: "<<err<<"\n";
+            std::cerr << "REXGetSliceInfo(" << i << ") failed: " << err << "\n";
             continue;
         }
-
         int frames = sInfo.fSampleLength;
-        double durationSec = double(frames) / sampleRate;
-        double offsetSec   = sInfo.fPPQPos * (60.0 / (kPPQ * tempoBPM));
+        double duration = double(frames) / sampleRate;
+        double offset   = cumulative;
 
-        // render slice
-        std::vector<float> bufL(frames),
-                            bufR(channels==2 ? frames : 0);
-        float* outputs[2] = { bufL.data(),
-                             channels==2 ? bufR.data() : nullptr };
+        // Render slice
+        std::vector<float> bufL(frames), bufR(channels==2 ? frames : 0);
+        float* outputs[2] = { bufL.data(), channels==2 ? bufR.data() : nullptr };
         err = REXRenderSlice(rex, i, frames, outputs);
         if (err != kREXError_NoError) {
-            std::cerr << "REXRenderSlice("<<i<<") failed: "<<err<<"\n";
+            std::cerr << "REXRenderSlice(" << i << ") failed: " << err << "\n";
             continue;
         }
 
-        // convert to PCM
+        // Convert to PCM
         std::vector<int16_t> pcm;
         pcm.reserve(frames * channels);
         for (int j = 0; j < frames; ++j) {
@@ -166,24 +177,27 @@ int main(int argc, char* argv[])
             }
         }
 
-        // write WAV
-        std::string wavName = prefix + "_slice_" + std::to_string(i) + ".wav";
-        if (writeWav(wavName, pcm, sampleRate, channels))
-            std::cout << "Wrote " << wavName << "\n";
+        // Write WAV
+        std::string wavPath = std::string(dir) + "/" + prefix + "_slice_" + std::to_string(i) + ".wav";
+        if (writeWav(wavPath, pcm, sampleRate, channels))
+            std::cout << "Wrote " << wavPath << "\n";
         else
-            std::cerr << "Failed writing " << wavName << "\n";
+            std::cerr << "Failed writing " << wavPath << "\n";
 
-        // append to report
+        // Append CSV row: slice, offset, duration
         if (report) {
-            report << i << "\t"
-                   << sInfo.fPPQPos << "\t\t"
-                   << offsetSec << "\t\t"
-                   << durationSec << "\n";
+            report << i << "," << offset << "," << duration << "\n";
         }
+        cumulative += duration;
     }
 
-    // 7) Cleanup
-    if (report) report.close();
+    // Final total line
+    if (report) {
+        report << "Loop,," << loopSec << "\n";
+        report.close();
+    }
+
+    // Cleanup
     REXDelete(&rex);
     REXUninitializeDLL();
     return 0;
