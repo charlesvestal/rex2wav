@@ -38,3 +38,7 @@ You can also export the entire loop as a single file, alongside its slice points
    ```bash
    ./bin/rex2wav input.rx2 --single-file
    ```
+
+## Special thanks
+
+Much knowledge and inspiration came from [libsndfile](https://github.com/libsndfile/libsndfile) and [re-lab](https://github.com/renyxa/re-lab). Thank you!
