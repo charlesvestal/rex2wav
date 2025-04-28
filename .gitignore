@@ -31,3 +31,5 @@ Frameworks/*
 #Artifacts
 bin/*
 obj/*
+slices/*
+*.rx2

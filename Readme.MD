@@ -31,3 +31,8 @@
 
 - The slices will be saved in a folder named `slices`.
 - A CSV file containing the slice points and durations will also be generated.
+
+You can also export the entire loop as a single file, alongside its slice points csv with 
+   ```bash
+   ./bin/rex2wav input.rx2 --single-file
+   ```
