@@ -1,6 +1,6 @@
 # rex2wav
 
-A utility to convert Propellerheads Recycle REX (rx2) files into component slices, and extract information about the slice timing.
+A utility to convert Propellerheads Recycle REX (rx2) files into component slices, and extract information about the slice timing. Mac only, sorry.
 
 ## Build Instructions
 
