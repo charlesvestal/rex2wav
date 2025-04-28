@@ -1,5 +1,7 @@
 # rex2wav
 
+A utility to convert Propellerheads Recycle REX (rx2) files into component slices, and extract information about the slice timing.
+
 ## Build Instructions
 
 1. Download the REX SDK from [Reason Studios Downloads](https://developer.reasonstudios.com/downloads/other-products).
