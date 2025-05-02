@@ -2,6 +2,22 @@
 
 A utility to convert and export Propellerheads Recycle REX (rx2, .rcy, .rex) files into component slices, and extract information about the slice timing. Mac only, sorry.
 
+## Usage
+
+Download a [release](https://github.com/charlesvestal/rex2wav/releases).
+
+   ```bash
+   ./bin/rex2wav input.rx2
+   ```
+
+- The slices will be saved in a folder named `slices`.
+- A CSV file containing the slice points and durations will also be generated.
+
+You can also export the entire loop as a single file, alongside its slice points csv with 
+   ```bash
+   ./bin/rex2wav input.rx2 --single-file
+   ```
+
 ## Build Instructions
 
 1. Download the REX SDK from [Reason Studios Downloads](https://developer.reasonstudios.com/downloads/other-products).
@@ -11,7 +27,7 @@ A utility to convert and export Propellerheads Recycle REX (rx2, .rcy, .rex) fil
    make
    ```
 
-## Run Instructions
+### Running
 
 1. In the project directory, copy the `REX Shared Library.framework` into a directory called `Frameworks`:
    ```bash
@@ -27,16 +43,6 @@ A utility to convert and export Propellerheads Recycle REX (rx2, .rcy, .rex) fil
 3. Run the program using:
    ```bash
    ./bin/rex2wav input.rx2
-   ```
-
-## Output
-
-- The slices will be saved in a folder named `slices`.
-- A CSV file containing the slice points and durations will also be generated.
-
-You can also export the entire loop as a single file, alongside its slice points csv with 
-   ```bash
-   ./bin/rex2wav input.rx2 --single-file
    ```
 
 ## Special thanks
