@@ -33,3 +33,5 @@ bin/*
 obj/*
 slices/*
 *.rx2
+.aider*
+__pycache__/*
